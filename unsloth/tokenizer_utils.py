@@ -1,17 +1,3 @@
-# Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 from transformers import AutoTokenizer
 from transformers.convert_slow_tokenizer import convert_slow_tokenizer
 from transformers import PreTrainedTokenizerFast
@@ -41,6 +27,8 @@ IGNORED_TOKENIZER_CHECKING = frozenset((
 ))
 
 
+IGNORED_TOKENIZER_NAMES = [
+]
 IGNORED_TOKENIZER_NAMES = frozenset(
     [x.lower() for x in IGNORED_TOKENIZER_NAMES]
 )
@@ -782,8 +770,7 @@ def add_new_tokens(
 
     if method == "interpolation":
         print(
-            "Unsloth: You are using interpolation to add new tokens.\n"\
-            f"We shall set new tokens = mean(embeddings)*{1-interpolation} + mean(new_tokens)*{interpolation}"
+            f"Unsloth: Using interpolation to add new tokens. New tokens = mean(embeddings)*{1-interpolation} + mean(new_tokens)*{interpolation}"
         )
         for j, token in enumerate(new_tokens):
             input_ids = tokenizer(token, add_special_tokens = False).input_ids
@@ -830,33 +817,6 @@ from trl.trainer.sft_trainer import *
 from transformers.trainer import *
 
 def patch_sft_trainer_tokenizer():
-    for function_name, replacer in (
-        # Removed problematic line causing AttributeError
-        #("_prepare_non_packed_dataloader", "def tokenize(element):",),
-    ):
-        function = getsource(eval(f"trl.trainer.sft_trainer.SFTTrainer.{function_name}"))
-        where = function.find("def")
-        function = function.split("\n")
-        function = "\n".join(x[where:] for x in function)
-
-        check_text = \
-        "\n"\
-        "test_text = dataset[0][dataset_text_field] if (formatting_func is None or not use_formatting_func) else formatting_func(dataset[0])[0]\n"\
-        "chat_template = getattr(tokenizer, 'chat_template', None)\n"\
-        "chat_template = '' if chat_template is None else chat_template\n"\
-        "has_bos_token_already = (test_text.startswith(tokenizer.bos_token) or tokenizer.bos_token in chat_template) "\
-        "if getattr(tokenizer, 'bos_token', None) is not None else False\n"\
-        "add_special_tokens = False if has_bos_token_already else add_special_tokens\n\n"
-
-        check_text = check_text.split("\n")
-        check_text = "\n".join(" "*where + x for x in check_text)
-
-        # function = function.replace(replacer, check_text + replacer) # commented out as replacer is not used
-        # exec(function, globals()) # commented out as function is not used
-
-        # exec(f"trl.trainer.sft_trainer.SFTTrainer.{function_name} = {function_name}", globals()) # commented out as function_name is not used
-    pass
-
     function_name, replacer = "train", "if resume_from_checkpoint is False:"
     function = getsource(eval(f"trl.trainer.sft_trainer.SFTTrainer.{function_name}"))
     where = function.find("def")
