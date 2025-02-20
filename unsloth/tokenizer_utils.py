@@ -41,19 +41,10 @@ IGNORED_TOKENIZER_CHECKING = frozenset((
 ))
 
 
-IGNORED_TOKENIZER_NAMES = [
-    # "unsloth/Mistral-Nemo-Instruct-2407-bnb-4bit",
-    # "unsloth/Mistral-Nemo-Instruct-2407",
-    # "mistralai/Mistral-Nemo-Instruct-2407",
-    # "unsloth/Mistral-Nemo-Base-2407-bnb-4bit",
-    # "unsloth/Mistral-Nemo-Base-2407",
-    # "mistralai/Mistral-Nemo-Base-2407",
-]
 IGNORED_TOKENIZER_NAMES = frozenset(
     [x.lower() for x in IGNORED_TOKENIZER_NAMES]
 )
 
-# Check environments
 keynames = "\n" + "\n".join(os.environ.keys())
 IS_COLAB_ENVIRONMENT  = "\nCOLAB_"  in keynames
 IS_KAGGLE_ENVIRONMENT = "\nKAGGLE_" in keynames
@@ -61,23 +52,18 @@ del keynames
 
 
 def try_fix_tokenizer(tokenizer, prepend = True):
-
     if hasattr(tokenizer, "_tokenizer"):
         converted_tokenizer = tokenizer._tokenizer
     else:
         converted_tokenizer = convert_slow_tokenizer(tokenizer)
-    pass
 
     tokenizer_string = converted_tokenizer.to_str()
 
-    # Llama does _apple. Sometimes this is wrong!!
     prepend_text = '{"type":"Prepend","prepend":" "},'
     if not prepend and prepend_text in tokenizer_string:
         tokenizer_string = tokenizer_string.replace(prepend_text, "", 1)
-    pass
 
     dir_names = dir(tokenizer)
-    # Get eos_token, bos_token etc
     token_names = [x for x in dir_names if x.endswith("_token") and x.count("_") == 1]
 
     for token_name in token_names:
@@ -85,29 +71,23 @@ def try_fix_tokenizer(tokenizer, prepend = True):
         if token is None: continue
         token_id = getattr(tokenizer, token_name + "_id", None)
 
-        # Locate the token's id mapping in the string
         find_text = f'"id":{token_id},"content":"'
         start = tokenizer_string.find(find_text) + len(find_text)
         if start == -1: continue
         end   = tokenizer_string.find('",', start)
 
         bad_token = tokenizer_string[start : end]
-        # Check if token is the actual same one - if not, edit it
         if bad_token != token:
             bad_text  = f'{find_text}{bad_token}",'
             good_text = f'{find_text}{token}",'
             tokenizer_string = tokenizer_string.replace(bad_text, good_text, 1)
 
-            # And replace vocab section
             bad_text = f'"{bad_token}":{token_id},'
             good_text = f'"{token}":{token_id},'
             tokenizer_string = tokenizer_string.replace(bad_text, good_text, 1)
-        pass
-    pass
 
     fixed_tokenizer = converted_tokenizer.from_str(tokenizer_string)
     return fixed_tokenizer
-pass
 
 
 def get_sorted_dict(dictionary):
@@ -119,7 +99,6 @@ def get_sorted_dict(dictionary):
         value = inverted_dictionary[key]
         sorted_dictionary[value] = key
     return sorted_dictionary
-pass
 
 
 def convert_to_fast_tokenizer(
@@ -141,15 +120,12 @@ def convert_to_fast_tokenizer(
             FastTokenizer = PreTrainedTokenizerFast
     except:
         FastTokenizer = PreTrainedTokenizerFast
-    pass
 
-    # Get all arguments (bos_token, etc)
     docs = FastTokenizer.__doc__
     docs = docs[docs.find("Args:"):]
     args = re.findall(r"\n[\s]+([^\s]{1,}) \(", docs, flags = re.MULTILINE)
     args = [x for x in args if not x.endswith("_file")]
 
-    # Also some missing maybe!
     docs = PreTrainedTokenizerFast.__doc__
     docs = docs[docs.find("Args:"):]
     args2 = re.findall(r"\n[\s]+([^\s]{1,}) \(", docs, flags = re.MULTILINE)
@@ -161,45 +137,33 @@ def convert_to_fast_tokenizer(
     kwargs["tokenizer_object"] = try_fix_tokenizer(slow_tokenizer, prepend = True)
     fast_tokenizer = FastTokenizer( **kwargs )
 
-    # Check if they're similar!
     sorted_slow_tokenizer = get_sorted_dict(slow_tokenizer.get_vocab())
     sorted_fast_tokenizer = get_sorted_dict(fast_tokenizer.get_vocab())
 
     check_vocab   = (sorted_slow_tokenizer == sorted_fast_tokenizer)
     check_special = (slow_tokenizer.all_special_tokens == fast_tokenizer.all_special_tokens)
 
-    # Failure so return slow_tokenizer
     if not check_vocab or not check_special: return slow_tokenizer
 
-    # Now confirm if they match
     if not assert_same_tokenization(slow_tokenizer, fast_tokenizer):
-        # Maybe remove prepending of __apple?
         kwargs["tokenizer_object"] = try_fix_tokenizer(slow_tokenizer, prepend = False)
         fast_tokenizer = FastTokenizer( **kwargs )
         if not assert_same_tokenization(slow_tokenizer, fast_tokenizer):
-            # Failure :(
             return slow_tokenizer
-        pass
-    pass
 
-    # Also tokenizer.model is missing!
     name = slow_tokenizer.name_or_path.replace("/", "_")
     if not os.path.exists(temporary_location):
         os.makedirs(temporary_location)
-    pass
     new_location = f"{temporary_location}/{name}"
     slow_tokenizer.save_pretrained(new_location)
     fast_tokenizer.save_pretrained(new_location)
 
-    # Now load it!
     fast_tokenizer = AutoTokenizer.from_pretrained(new_location)
     if assert_same_tokenization(slow_tokenizer, fast_tokenizer):
         return fast_tokenizer
     return slow_tokenizer
-pass
 
 
-# Check Mistral chat template without BOS / EOS
 mistral_template = \
     "{% if messages[0]['role'] == 'system' %}"\
         "{% if messages[1]['role'] == 'user' %}"\
@@ -221,9 +185,8 @@ mistral_template = \
             "{{ raise_exception('Only user and assistant roles are supported!') }}"\
         "{% endif %}"\
     "{% endfor %}"
-pass
 
-# Check Llama chat template without BOS / EOS
+
 llama_template = \
     "{% if messages[0]['role'] == 'system' %}"\
         "{% if messages[1]['role'] == 'user' %}"\
@@ -245,11 +208,9 @@ llama_template = \
             "{{ raise_exception('Only user and assistant roles are supported!') }}"\
         "{% endif %}"\
     "{% endfor %}"
-pass
 
 
 def assert_same_tokenization(slow_tokenizer, fast_tokenizer):
-    # Get eos_token, bos_token etc
     dir_names = dir(slow_tokenizer)
     special_tokens = list(filter(None, (
         getattr(slow_tokenizer, x) for x in dir_names
@@ -257,14 +218,12 @@ def assert_same_tokenization(slow_tokenizer, fast_tokenizer):
     )))
     all_special_tokens = list(set(special_tokens + slow_tokenizer.all_special_tokens))
 
-    # Check if chat template is enabled!
     check_chat_template1 = True
     check_chat_template2 = True
     check_chat_template3 = True
 
     check_chat_template = check_chat_template1 and check_chat_template2 and check_chat_template3
 
-    # Try special tokens
     try:
         string = "\n".join(all_special_tokens) + \
             "A quick brown fox jumps over the lazy dog!!\n\nHi</s>\n\n" + \
@@ -275,15 +234,10 @@ def assert_same_tokenization(slow_tokenizer, fast_tokenizer):
 
         return check_chat_template and check_special_tokens
     except:
-        # For eg see https://github.com/unslothai/unsloth/issues/292
-        # Sometimes tokenizer has weird tokens, causing a combined tokenization to fail.
-        # [TODO] We temporarily disable this for CodeLlama tokenizers
         if slow_tokenizer.__repr__().split("(", 1)[0] in IGNORED_TOKENIZER_CHECKING:
             return check_chat_template
         else:
             return False
-    pass
-pass
 
 
 def fix_sentencepiece_tokenizer(
@@ -292,53 +246,38 @@ def fix_sentencepiece_tokenizer(
     token_mapping,
     temporary_location = "_unsloth_sentencepiece_temp",
 ):
-    # From https://github.com/google/sentencepiece/issues/121
-    # We need to manually edit the sentencepiece tokenizer!
     from transformers.utils import sentencepiece_model_pb2
 
     if not os.path.exists(temporary_location):
         os.makedirs(temporary_location)
-    pass
 
-    # Check if tokenizer.model exists
     if not os.path.isfile(f"{temporary_location}/tokenizer.model"):
         return new_tokenizer
-    pass
 
-    # First save the old tokenizer
     old_tokenizer.save_pretrained(temporary_location)
 
     tokenizer_file = sentencepiece_model_pb2.ModelProto()
     tokenizer_file.ParseFromString(open(f"{temporary_location}/tokenizer.model", "rb").read())
 
-    # Now save the new tokenizer
     new_tokenizer.save_pretrained(temporary_location)
 
-    # Now correct the old tokenizer's .model file
     for old_token, new_token in token_mapping.items():
         ids = old_tokenizer([old_token], add_special_tokens = False).input_ids
         ids = ids[0]
         if (len(ids) != 1):
-            # Skip this token!
             print(f"Skip mapping {old_token} to {new_token} since {new_token} is already in the tokenizer!")
             continue
-        pass
         ids = ids[0]
-        # [TODO] Hack for Starling - try except
         try:
             tokenizer_piece = tokenizer_file.pieces[ids]
         except:
             continue
         assert(tokenizer_piece.piece == old_token)
         tokenizer_piece.piece = new_token
-    pass
 
-    # And now write it
     with open(f"{temporary_location}/tokenizer.model", "wb") as file:
         file.write(tokenizer_file.SerializeToString())
-    pass
 
-    # And load it!
     from transformers import AutoTokenizer
     tokenizer = AutoTokenizer.from_pretrained(
         temporary_location,
@@ -346,15 +285,9 @@ def fix_sentencepiece_tokenizer(
         pad_token = new_tokenizer.pad_token,
     )
     return tokenizer
-pass
 
 
 def fix_sentencepiece_gguf(saved_location):
-    """
-        Fixes sentencepiece tokenizers which did not extend the vocabulary with
-        user defined tokens.
-        Inspiration from https://github.com/ggerganov/llama.cpp/blob/master/convert_hf_to_gguf.py
-    """
     from copy import deepcopy
     from transformers.utils import sentencepiece_model_pb2
     import json
@@ -367,31 +300,25 @@ def fix_sentencepiece_gguf(saved_location):
         USER_DEFINED = 4
         UNUSED = 5
         BYTE = 6
-    pass
 
-    # Load tokenizer.model
     tokenizer_file = sentencepiece_model_pb2.ModelProto()
     if not os.path.isfile(f"{saved_location}/tokenizer.model"): return
     tokenizer_file.ParseFromString(open(f"{saved_location}/tokenizer.model", "rb").read())
     sentence_piece_size = len(tokenizer_file.pieces)
 
-    # Load added_tokens_json
     if not os.path.isfile(f"{saved_location}/added_tokens.json"): return
     with open(f"{saved_location}/added_tokens.json", "r", encoding = "utf-8") as file:
         added_tokens_json = json.load(file)
-    pass
     if len(added_tokens_json) == 0: return
 
     added_tokens_json = dict(sorted(added_tokens_json.items(), key = lambda item: item[1]))
     new_size = sentence_piece_size + len(added_tokens_json)
 
-    # Confirm added_tokens_json is correct
     added_tokens_ids = np.array(list(added_tokens_json.values()))
     diff = np.diff(added_tokens_ids)
     if (diff.min() != 1 or diff.max() != 1): return
     if (added_tokens_ids.min() != sentence_piece_size): return
 
-    # Edit sentence piece tokens with added_tokens_json
     logger.warning(
         f"Unsloth: Extending {saved_location}/tokenizer.model with added_tokens.json.\n"\
         f"Originally tokenizer.model is of size ({sentence_piece_size}).\n"\
@@ -402,19 +329,12 @@ def fix_sentencepiece_gguf(saved_location):
         new_token.piece = added_token.encode("utf-8")
         new_token.score = -1000.0
         new_token.type  = SentencePieceTokenTypes.USER_DEFINED
-    pass
 
     tokenizer_file.pieces.extend(new_tokens)
 
     with open(f"{saved_location}/tokenizer.model", "wb") as file:
         file.write(tokenizer_file.SerializeToString())
-    pass
-
-    # Add padding tokens
-    # actual_vocab_size = model.config.vocab_size
-    # padding = actual_vocab_size - len(tokenizer_file.pieces)
     return
-pass
 
 
 def _load_correct_tokenizer(
@@ -430,10 +350,7 @@ def _load_correct_tokenizer(
         cache_dir = cache_dir
     else:
         cache_dir = None
-    pass
 
-    # Try loading the slow tokenizer. If it fails, then try Fast only
-    # Mainly to solve Deepseek models with no tokenizer.model file
     slow_tokenizer = None
     try:
         slow_tokenizer = AutoTokenizer.from_pretrained(
@@ -442,7 +359,6 @@ def _load_correct_tokenizer(
             padding_side      = padding_side,
             token             = token,
             trust_remote_code = trust_remote_code,
-            # Cannot just use use_fast = False as per https://twitter.com/danielhanchen/status/1789659394302718373
             use_fast          = False,
             legacy            = False,
             from_slow         = True,
@@ -450,11 +366,6 @@ def _load_correct_tokenizer(
         )
     except:
         pass
-        # print(
-        #     f"Unsloth: {tokenizer_name} has no tokenizer.model file.\n"\
-        #     "Just informing you about this - this is not a critical error."
-        # )
-    pass
 
     fast_tokenizer = AutoTokenizer.from_pretrained(
         tokenizer_name,
@@ -467,7 +378,6 @@ def _load_correct_tokenizer(
 
     if not fix_tokenizer or tokenizer_name in IGNORED_TOKENIZER_NAMES:
         return fast_tokenizer
-    # Ignore Mistral ones - they're a bit weird to handle!
     elif "mistral" in tokenizer_name.lower():
         return fast_tokenizer
     elif slow_tokenizer is not None:
@@ -476,17 +386,13 @@ def _load_correct_tokenizer(
         if hasattr(fast_tokenizer, "add_eos_token") and hasattr(slow_tokenizer, "add_eos_token"):
             fast_tokenizer.add_eos_token = slow_tokenizer.add_eos_token
 
-        # Confirm if slow and fast are equivalent!
         if assert_same_tokenization(slow_tokenizer, fast_tokenizer):
             return fast_tokenizer
         else:
             logger.warning(f"Unsloth: Will load {tokenizer_name} as a legacy tokenizer.")
             return convert_to_fast_tokenizer(slow_tokenizer)
-        pass
     else:
         return fast_tokenizer
-    pass
-pass
 
 
 def load_correct_tokenizer(
@@ -508,32 +414,23 @@ def load_correct_tokenizer(
         fix_tokenizer = fix_tokenizer,
     )
 
-    ### 1. Fixup tokenizer's chat_template
     old_chat_template = getattr(tokenizer, "chat_template", None)
 
-    # Ignore mistral type models since they don't have a add_generation_prompt
     if "mistral" in str(getattr(tokenizer, "name_or_path", "")).lower():
         chat_template = old_chat_template
-
-    # Also check Llama-2 old style models
     elif old_chat_template is not None and \
         "[/INST]" in old_chat_template and "[INST]" in old_chat_template and \
         "bos_token" in old_chat_template and "eos_token" in old_chat_template:
-
         chat_template = old_chat_template
-
     else:
         chat_template = fix_chat_template(tokenizer)
         if old_chat_template is not None and chat_template is None:
             raise RuntimeError(
                 "Unsloth: Fixing chat template failed - please file a report immediately!"
             )
-        pass
-    pass
 
     tokenizer.chat_template = chat_template
     return tokenizer
-pass
 
 
 def _fix_chat_template(chat_template):
@@ -550,17 +447,13 @@ def _fix_chat_template(chat_template):
         after_endfor = "{% if add_generation_prompt %}" + after_endfor + "{% endif %}"
 
         chat_template = chat_template[:where + len(endfor)] + after_endfor
-    pass
     return chat_template
-pass
 
 
 def fix_chat_template(tokenizer):
     chat_template = getattr(tokenizer, "chat_template", None)
     if chat_template is None: return None
 
-    ### 1. Check if add_generation_prompt works
-    # Check for ShareGPT style first
     is_sharegpt = None
     try:
         messages = [
@@ -577,13 +470,9 @@ def fix_chat_template(tokenizer):
             is_sharegpt = True
         except:
             is_sharegpt = None
-        pass
-    pass
 
-    # Not ShareGPT or HF style - just return
     if is_sharegpt is None: return chat_template
 
-    # Tokenize
     messages = [
         {"role": "user", "content": "Who are you?"} \
         if not is_sharegpt else \
@@ -593,9 +482,7 @@ def fix_chat_template(tokenizer):
     yes = tokenizer.apply_chat_template(messages, add_generation_prompt =  True, tokenize = False)
 
     if no == yes:
-        # SAME?! That's not good! We check for add_generation_prompt
         if "{% if add_generation_prompt %}" not in chat_template:
-            # Try fixing it by adding it
             new_chat_template = _fix_chat_template(chat_template)
             if "{% if add_generation_prompt %}" not in new_chat_template:
                 raise RuntimeError(
@@ -609,17 +496,13 @@ def fix_chat_template(tokenizer):
                     "This is not a bug, but please notify the Unsloth maintainers - thanks!"
                 )
                 chat_template = new_chat_template
-            pass
         else:
             raise RuntimeError(
                 f"Unsloth: The tokenizer `{tokenizer.name_or_path}`\n"\
                 "has a {% if add_generation_prompt %} for generation purposes, but wasn't provided correctly.\n"\
                 "Please file a bug report immediately - thanks!"
             )
-        pass
-    pass
     return chat_template
-pass
 
 
 def check_tokenizer(
@@ -631,16 +514,8 @@ def check_tokenizer(
     token = None,
     _reload = True,
 ):
-    # Checks tokenizer for out of bounds ids.
-    # Mainly a fix for https://huggingface.co/berkeley-nest/Starling-LM-7B-alpha
-    # where <sep> had token id=32002.
-    # See https://huggingface.co/berkeley-nest/Starling-LM-7B-alpha/discussions/25
-    # Seems like the Fast tokenizer in Rust breaks things!
-
-    # We ignore some of them!
     if tokenizer.__repr__().split("(", 1)[0] in IGNORED_TOKENIZER_CHECKING:
         return tokenizer
-    pass
 
     max_embedding_size = model.model.embed_tokens.weight.shape[0]
     added_tokens_fast = tokenizer.added_tokens_decoder
@@ -653,7 +528,6 @@ def check_tokenizer(
             bad_indices = list(added_tokens_fast.keys  ())[j:]
             bad_tokens  = list(added_tokens_fast.values())[j:]
             if not _reload:
-                # Try removing the token
                 added_tokens = [str(x) for x in tokenizer.added_tokens_decoder.values()]
                 special_tokens = tokenizer.special_tokens_map
                 import itertools
@@ -665,12 +539,10 @@ def check_tokenizer(
                 can_be_removed1 = [x for x in bad_tokens if x not in special_tokens]
                 can_be_removed2 = [x for x in can_be_removed1 if x in tokenizer._added_tokens_encoder.keys()]
 
-                # Check of extra tokens can in fact we removed!
                 can_be_removed = \
                     (len(can_be_removed1) == len(bad_tokens)) and \
                     (len(can_be_removed2) == len(bad_tokens))
 
-                # Check if sep_token or other generic types
                 remove_generic = False
                 try_mapper = []
                 if not can_be_removed:
@@ -688,26 +560,19 @@ def check_tokenizer(
                         pass
                     pass
 
-                    # Recheck!
                     can_be_removed = (len(try_removal) == len(bad_tokens))
                     if can_be_removed: remove_generic = True
                     can_be_removed1 = bad_tokens
-                pass
 
                 if can_be_removed:
-                    # Yes it can be fixed!
                     for j, bad_token in enumerate(can_be_removed1):
                         remove_id = tokenizer._added_tokens_encoder[bad_token]
                         del tokenizer._added_tokens_decoder[remove_id]
                         del tokenizer._added_tokens_encoder[bad_token]
 
                         if remove_generic and (try_removal[j] == bad_token):
-                            # Remove sep token for example
                             setattr(tokenizer, try_mapper[j], None)
                             setattr(tokenizer, try_mapper[j] + "_id", None)
-                        pass
-                    pass
-                    # Confirm 1 more time!
                     if max(tokenizer.added_tokens_decoder.keys()) < max_embedding_size:
                         logger.warning_once(
                             f"Unsloth loaded a broken tokenizer `{model_name}`, but managed to repair it!\n"\
@@ -715,32 +580,24 @@ def check_tokenizer(
                             "We removed these bad tokens. If you think this is incorrect, fix your tokenizer first."
                         )
                         return convert_to_fast_tokenizer(tokenizer)
-                    pass
-                pass
 
-                # :( Failure
                 raise RuntimeError(
                     f"Unsloth tried to load `{model_name}`, but cannot succeed.\n"\
                     f"Tokens {bad_tokens} with ids {bad_indices} exceeds the max vocab size of {max_embedding_size}.\n"\
                     f"Fix your tokenizer since it'll perform out of bounds memory accesses."
                 )
-            pass
 
             if IS_COLAB_ENVIRONMENT or IS_KAGGLE_ENVIRONMENT:
                 cache_dir = "huggingface_tokenizers_cache"
             else:
                 cache_dir = None
-            pass
 
-            # Sometimes slow tokenizer does not work like Deepseek
             try:
-                # Try slow tokenizer which can fix things!
                 tokenizer = AutoTokenizer.from_pretrained(
                     model_name,
                     model_max_length = model_max_length,
                     padding_side = padding_side,
                     token = token,
-                    # Cannot just use use_fast = False as per https://twitter.com/danielhanchen/status/1789659394302718373
                     use_fast = False,
                     legacy = False,
                     from_slow = True,
@@ -757,68 +614,44 @@ def check_tokenizer(
                 )
                 break
             except:
-                # Tokenizer has out of bounds issues and we can't
-                # load the slow tokenizer version :(
                 logger.warning_once(
                     "Unsloth: Tokenizer is most likely buggy, and Unsloth failed to repair it.\n"\
                     "It will still work, but beware of out of bounds memory accesses.\n"\
                     "Please file an issue on the model owner's repo about this issue."
                 )
                 return tokenizer
-            pass
-        pass
-    pass
     return convert_to_fast_tokenizer(tokenizer)
-pass
 
 
 @torch.inference_mode
 def fix_untrained_tokens(model, tokenizer, train_dataset, eps = 1e-16):
-    """
-    Llama-3 for eg has untrained vectors in the base model.
-    These include <|eot_id|>, <|start_header_id|>, <|end_header_id|>
-    We reset them to the mean of the rest of the tokens
-    """
     embedding_matrix = model.get_input_embeddings ().weight
     lm_head_matrix   = model.get_output_embeddings().weight
 
-    # Ignore some model checks for now
     if model.config._name_or_path in  IGNORED_TOKENIZER_NAMES:
         return
-    pass
 
-    # Get untrained tokens
     indicator_untrained1 = torch.amax(embedding_matrix, axis = 1) <= eps
-    # Check lm_head as well
     indicator_untrained2 = torch.amax(lm_head_matrix,   axis = 1) <= eps
-    # Combine both checks
     indicator_untrained = indicator_untrained1 & indicator_untrained2
 
     where_untrained = torch.where(indicator_untrained)[0]
     n_untrained = where_untrained.shape[0]
     n_trained = embedding_matrix.shape[0] - n_untrained
 
-    # Get set and actual tokens
     where_untrained = where_untrained.tolist()
     if len(where_untrained) == 0: return
 
-    # Remove untrained indices where it's longer
-
     where_untrained_set = frozenset(where_untrained)
     actual_bad_tokens = tokenizer.convert_ids_to_tokens(where_untrained)
-    # Remove None items in actual_bad_tokens
     actual_bad_tokens = [x for x in actual_bad_tokens if x is not None]
 
-    # Check if tokenizer and training datasets have bad tokens
     if_bad_first  = False
     if_bad_second = False
-    # Check tokenizer's chat template for any untrained tokens
     chat_template = getattr(tokenizer, "chat_template", None)
     if chat_template is not None:
         if_bad_first = any(x in chat_template for x in actual_bad_tokens)
-    pass
 
-    # Check the first 250, last 250 input_ids
     size_dataset = len(train_dataset)
     size = min(size_dataset, 250)
     for j in range(size):
@@ -829,11 +662,7 @@ def fix_untrained_tokens(model, tokenizer, train_dataset, eps = 1e-16):
             if if_bad:
                 if_bad_second = True
                 break
-            pass
-        pass
-    pass
 
-    # Check last 250
     if not if_bad_second:
         left = max(size_dataset-250, 0)
         for j in range(left, size_dataset):
@@ -844,15 +673,9 @@ def fix_untrained_tokens(model, tokenizer, train_dataset, eps = 1e-16):
                 if if_bad:
                     if_bad_second = True
                     break
-                pass
-            pass
-        pass
-    pass
 
-    # Check if bad tokens exists!
     if not if_bad_first and not if_bad_second: return
 
-    # Check if lm_head / embed_token are trainable!
     bad_not_trainable = False
     if not embedding_matrix.requires_grad: bad_not_trainable = True
     if not lm_head_matrix  .requires_grad: bad_not_trainable = True
@@ -864,30 +687,23 @@ def fix_untrained_tokens(model, tokenizer, train_dataset, eps = 1e-16):
             '`FastLanguageModel.get_peft_model(target_modules = [..., "embed_tokens", "lm_head",]). `'\
             'Are you using the `base` model? Instead, use the `instruct` version to silence this warning.',
         )
-    pass
 
-    # Count all the possible bad tokens
     final_counts = np.zeros(max(len(tokenizer), embedding_matrix.shape[0]), dtype = np.int64)
     def mapping(examples):
         input_ids = examples["input_ids"]
         counter = np.fromiter(itertools.chain.from_iterable(input_ids), dtype = np.int32)
         np.add.at(final_counts, counter, 1)
-    pass
     train_dataset.map(mapping, batched = True, desc = "Counting untrained tokens")
 
-    # Get sum of all items
     sum_embedding = torch.sum(embedding_matrix, dtype = torch.float32, axis = 0)
     sum_lm_head   = torch.sum(lm_head_matrix,   dtype = torch.float32, axis = 0)
 
-    # Remove bad tokens
     sum_embedding -= torch.sum(embedding_matrix[where_untrained], dtype = torch.float32, axis = 0)
     sum_lm_head   -= torch.sum(lm_head_matrix  [where_untrained], dtype = torch.float32, axis = 0)
 
-    # Find correct average by dividing by sum of trained tokens
     mean_embedding = (sum_embedding / n_trained)
     mean_lm_head   = (sum_lm_head   / n_trained)
 
-    # Scale each to be equal to 1/max_frequency. Also set some to 0 if none seen
     scaling = final_counts[where_untrained] / max(final_counts.max(), 1)
     scaling = torch.tensor(scaling, device = mean_embedding.device).unsqueeze(1)
     mean_embedding = mean_embedding.repeat((n_untrained, 1,)) * scaling
@@ -896,7 +712,6 @@ def fix_untrained_tokens(model, tokenizer, train_dataset, eps = 1e-16):
     mean_embedding[where_null] = 0
     mean_lm_head  [where_null] = 0
 
-    # Set them to the mean
     logger.warning(
         "Unsloth: Setting embed_tokens & lm_head untrained tokens to "\
         "mean(trained) to counteract NaNs during training."
@@ -904,45 +719,32 @@ def fix_untrained_tokens(model, tokenizer, train_dataset, eps = 1e-16):
     embedding_matrix[where_untrained] = mean_embedding.to(embedding_matrix.dtype)
     lm_head_matrix  [where_untrained] = mean_lm_head  .to(lm_head_matrix  .dtype)
 
-    # Clean up
     for _ in range(3):
         gc.collect()
         torch.cuda.empty_cache()
-    pass
     return
-pass
 
 
 @torch.inference_mode
 def mean_of_trained_tokens(model, eps = 1e-16):
-    """
-    Llama-3 for eg has untrained vectors in the base model.
-    These include <|eot_id|>, <|start_header_id|>, <|end_header_id|>
-    We reset them to the mean of the rest of the tokens
-    """
     embedding_matrix = model.get_input_embeddings ().weight.clone()
     lm_head_matrix   = model.get_output_embeddings().weight.clone()
 
-    # Get untrained tokens
     indicator_untrained = torch.amax(embedding_matrix, axis = 1) <= eps
     where_untrained = torch.where(indicator_untrained)[0]
     n_untrained = where_untrained.shape[0]
     n_trained = embedding_matrix.shape[0] - n_untrained
 
-    # Get sum of all items
     sum_embedding = torch.sum(embedding_matrix, dtype = torch.float32, axis = 0)
     sum_lm_head   = torch.sum(lm_head_matrix,   dtype = torch.float32, axis = 0)
 
-    # Remove bad tokens
     sum_embedding -= torch.sum(embedding_matrix[where_untrained], dtype = torch.float32, axis = 0)
     sum_lm_head   -= torch.sum(lm_head_matrix  [where_untrained], dtype = torch.float32, axis = 0)
 
-    # Find correct average by dividing by sum of trained tokens
     mean_embedding = (sum_embedding / n_trained)
     mean_lm_head   = (sum_lm_head   / n_trained)
 
     return mean_embedding, mean_lm_head
-pass
 
 
 @torch.inference_mode
@@ -953,16 +755,11 @@ def add_new_tokens(
     method = "mean",
     interpolation = 0.5,
 ):
-    """
-    Smartly resizes the tokenizer and adds new tokens to the model.
-    We also disregard untrained tokens by removing them from the mean calculation.
-    """
     assert(isinstance(new_tokens, (list, tuple)))
     assert(len(new_tokens) > 0)
     assert(method == "mean" or method == "interpolation")
     assert(interpolation >= 0 and interpolation <= 1)
 
-    # Check if tokens already exist
     overlapping_tokens = set(new_tokens) & set(tokenizer.vocab.keys())
     if len(overlapping_tokens) != 0:
         print(
@@ -971,23 +768,15 @@ def add_new_tokens(
             f"We shall safely ignore these overlapping tokens."
         )
         new_tokens = [x for x in new_tokens if x not in overlapping_tokens]
-    pass
 
-    # Get mean of trained tokens
-    # mean_embedding, mean_lm_head = fix_untrained_tokens(model)
-
-    # Weirdly be careful reserved tokens can pop out
     mean_embedding, mean_lm_head = mean_of_trained_tokens(model)
     mean_embedding = mean_embedding.to(torch.float32)
     mean_lm_head   = mean_lm_head  .to(torch.float32)
 
-    # Add tokens!
     old_length = len(tokenizer)
     tokenizer.add_tokens(new_tokens)
     model.resize_token_embeddings(len(tokenizer))
 
-    # If we use interpolation, we interpolate between the mean embeddings and
-    # the Word2Vec sum of the other vectors
     embedding_matrix = model.get_input_embeddings ().weight
     lm_head_matrix   = model.get_output_embeddings().weight
 
@@ -1001,34 +790,24 @@ def add_new_tokens(
             mean_embedding_token = embedding_matrix[input_ids].mean(axis = 0, dtype = torch.float32)
             mean_lm_head_token   = lm_head_matrix  [input_ids].mean(axis = 0, dtype = torch.float32)
 
-            # Interpolate
             mean_embedding_token = mean_embedding*(1-interpolation) + mean_embedding_token*interpolation
             mean_lm_head_token   = mean_lm_head  *(1-interpolation) + mean_lm_head_token  *interpolation
 
-            # Set the new vector
             embedding_matrix[old_length+j] = mean_embedding_token
             lm_head_matrix  [old_length+j] = mean_lm_head_token
-        pass
     else:
-        # Now set the new tokens to the mean!
         embedding_matrix[old_length:] = mean_embedding
         lm_head_matrix  [old_length:] = mean_lm_head
-    pass
 
-    # We set a flag to say we need to train embeddings
     internal_model = model
     while hasattr(internal_model, "model"):
         internal_model._need_to_train_embeddings = True
         internal_model = internal_model.model
-    pass
     internal_model._need_to_train_embeddings = True
-
     return
-pass
 
 
 def check_nvidia():
-    # Unsloth doesn't work yet on AMD devices - we're working on it!
     output = np.array([0,])
     try:
         output = subprocess.check_output("nvidia-smi --query-gpu=memory.used --format=csv", shell=True)
@@ -1037,12 +816,11 @@ def check_nvidia():
     except:
         if not torch.cuda.is_available():
             print("Unsloth: No Nvidia GPU found. Falling back to CPU.")
-            output = np.array([0,])  # Fallback output indicating CPU usage
+            output = np.array([0,])
         else:
             raise RuntimeError("Unsloth: We do not support AMD / Intel machines yet - it is a work in progress!")
     return output
 
-# Perform the pre-check
 PRE_CHECK = check_nvidia()
 
 
@@ -1052,13 +830,9 @@ from trl.trainer.sft_trainer import *
 from transformers.trainer import *
 
 def patch_sft_trainer_tokenizer():
-    """
-        Patches the trainer with changes
-    """
     for function_name, replacer in (
-        # Removed problematic line
-        # ("_prepare_non_packed_dataloader", "def tokenize(element):",),
-        # ("_prepare_packed_dataloader", "if dataset_text_field is not None",),
+        # Removed problematic line causing AttributeError
+        #("_prepare_non_packed_dataloader", "def tokenize(element):",),
     ):
         function = getsource(eval(f"trl.trainer.sft_trainer.SFTTrainer.{function_name}"))
         where = function.find("def")
@@ -1077,13 +851,12 @@ def patch_sft_trainer_tokenizer():
         check_text = check_text.split("\n")
         check_text = "\n".join(" "*where + x for x in check_text)
 
-        # function = function.replace(replacer, check_text + replacer) # commented out as replacer is not used after commenting out the problematic line
-        # exec(function, globals()) # commented out as function is not used after commenting out the problematic line
+        # function = function.replace(replacer, check_text + replacer) # commented out as replacer is not used
+        # exec(function, globals()) # commented out as function is not used
 
-        # exec(f"trl.trainer.sft_trainer.SFTTrainer.{function_name} = {function_name}", globals()) # commented out as function_name is not used after commenting out the problematic line
+        # exec(f"trl.trainer.sft_trainer.SFTTrainer.{function_name} = {function_name}", globals()) # commented out as function_name is not used
     pass
 
-    # Patch train with fix_untrained_tokens
     function_name, replacer = "train", "if resume_from_checkpoint is False:"
     function = getsource(eval(f"trl.trainer.sft_trainer.SFTTrainer.{function_name}"))
     where = function.find("def")
@@ -1122,6 +895,6 @@ def patch_sft_trainer_tokenizer():
     exec(function, globals())
 
     exec(f"trl.trainer.sft_trainer.SFTTrainer.{function_name} = {function_name}", globals())
-pass
+
 
 patch_sft_trainer_tokenizer()
