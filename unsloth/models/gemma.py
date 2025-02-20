@@ -60,7 +60,7 @@ def fast_geglu_inference(self, X):
     # up   = self.up_proj(X)
     bsz, _, hd = X.shape
     # mlp_size = self.config.intermediate_size
-    # temp = torch.empty((2, bsz, 1, mlp_size), dtype = X.dtype, device = "cpu")
+    # temp = torch.empty((2, bsz, 1, mlp_size), dtype = X.dtype, device = "cuda:0")
 
     gate = fast_linear_forward(self.gate_proj, X)#, out = temp[0])
     up   = fast_linear_forward(self.  up_proj, X)#, out = temp[1])
@@ -77,7 +77,7 @@ pass
 def GemmaDecoderLayer_fast_forward(
     self,
     hidden_states:        torch.Tensor,
-    causal_mask:          Optional[xformers.attn_bias.BlockDiagonalCausalMask] = None,
+    causal_mask:          Optional[BlockDiagonalCausalMask] = None,
     attention_mask:       Optional[torch.Tensor] = None,
     position_ids:         Optional[torch.LongTensor] = None,
     past_key_value:       Optional[Tuple[torch.Tensor]] = None,
@@ -87,7 +87,7 @@ def GemmaDecoderLayer_fast_forward(
     *args, **kwargs,
 ):
     if use_cache and hasattr(self, "_flag_for_generation"): #past_key_value is not None:
-        out_weight = torch.empty(self.input_layernorm.weight.shape, dtype = torch.float32, device = "cpu")
+        out_weight = torch.empty(self.input_layernorm.weight.shape, dtype = torch.float32, device = "cuda:0")
 
         # Self Attention
         residual = hidden_states
@@ -149,7 +149,7 @@ def GemmaModel_fast_forward_inference(
     position_ids,
     attention_mask = None,
 ):
-    out_weight = torch.empty_like(self.model.layers[0].input_layernorm.weight, dtype = torch.float32, device = "cpu")
+    out_weight = torch.empty_like(self.model.layers[0].input_layernorm.weight, dtype = torch.float32, device = "cuda:0")
     input_ids = input_ids[:,:self.max_seq_length]
     hidden_states = self.model.embed_tokens(input_ids)
     hidden_states = hidden_states.to(self.config.torch_dtype)
@@ -210,7 +210,15 @@ class GemmaFixedRotaryEmbedding(torch.nn.Module):
         config = None, # [TODO] Hack to pass in config - need to remove later
     ):
         super().__init__()
-        if config is not None: return # [TODO] Hack to pass in config - need to remove later
+        if config is not None:
+            # [TODO] Hack to pass in config - need to remove later
+            base = config.rope_theta
+            partial_rotary_factor = config.partial_rotary_factor if hasattr(config, "partial_rotary_factor") else 1.0
+            dim = getattr(config, "head_dim", None)
+            if dim is None: dim = int((config.hidden_size // config.num_attention_heads))
+            device = "cuda"
+            max_position_embeddings = config.max_position_embeddings
+        pass
         self.dim = dim
         self.max_position_embeddings = max_position_embeddings
         self.base = base
@@ -237,8 +245,8 @@ class GemmaFixedRotaryEmbedding(torch.nn.Module):
 
         emb = torch.cat((radians_new, radians_new), dim = -1)
         # We must do RoPE in float32!
-        cos = emb.cos().to(device = "cpu", non_blocking = True)#, dtype = dtype)
-        sin = emb.sin().to(device = "cpu", non_blocking = True)#, dtype = dtype)
+        cos = emb.cos().to(device = "cuda:0", non_blocking = True)#, dtype = dtype)
+        sin = emb.sin().to(device = "cuda:0", non_blocking = True)#, dtype = dtype)
         self.register_buffer("cos_cached", cos, persistent = False)
         self.register_buffer("sin_cached", sin, persistent = False)
     pass
@@ -254,11 +262,15 @@ class GemmaFixedRotaryEmbedding(torch.nn.Module):
         )
     pass
 
+    def get_cached(self, seq_len = None):
+        return self.cos_cached, self.sin_cached
+    pass
+
     def extend_rope_embedding(self, x, seq_len):
         if seq_len <= self.current_rope_size: return
         # Iteratively grow by increments of 8192
         self.current_rope_size = math.ceil(seq_len / 8192) * 8192
-        self._set_cos_sin_cache(self.current_rope_size, device = "cpu", dtype = x.dtype)
+        self._set_cos_sin_cache(self.current_rope_size, device = "cuda:0", dtype = x.dtype)
     pass
 pass
 
@@ -292,8 +304,8 @@ class GemmaFixedLinearScalingRotaryEmbedding(GemmaFixedRotaryEmbedding):
 
         emb = torch.cat((radians_new, radians_new), dim = -1)
         # We must do RoPE in float32!
-        cos = emb.cos().to(device = "cpu", non_blocking = True)#, dtype = dtype)
-        sin = emb.sin().to(device = "cpu", non_blocking = True)#, dtype = dtype)
+        cos = emb.cos().to(device = "cuda:0", non_blocking = True)#, dtype = dtype)
+        sin = emb.sin().to(device = "cuda:0", non_blocking = True)#, dtype = dtype)
         self.register_buffer("cos_cached", cos, persistent = False)
         self.register_buffer("sin_cached", sin, persistent = False)
     pass
@@ -335,60 +347,9 @@ class FastGemmaModel(FastLlamaModel):
 
 
     @staticmethod
-    def post_patch(model):
-        # Patch model for Gemma
-        layers = model.model.layers
-
-        # Torch.compile fails on embedding matrix??
-        # Workaround randomnly fixes it for torch versions < 2.2
-        model.model.embed_tokens = torch.nn.Embedding.from_pretrained(model.model.embed_tokens.weight)
-        model.config.update({"unsloth_version" : __version__})
-
-        # We also do this for the lm_head
-        lm_head = torch.nn.Linear(1, 1, bias = None)
-        del lm_head.weight
-        lm_head.weight = model.lm_head.weight
-        lm_head.in_features  = lm_head.weight.shape[1]
-        lm_head.out_features = lm_head.weight.shape[0]
-        model.lm_head = lm_head
-
-        # Gemma has tied weights! This means lm_head == embed_tokens
-        if model.model.embed_tokens.weight.data_ptr() != model.lm_head.weight.data_ptr():
-            lm_head = torch.nn.Linear(1, 1, bias = None)
-            del lm_head.weight
-            lm_head.weight = model.model.embed_tokens.weight
-            lm_head.in_features  = lm_head.weight.shape[1]
-            lm_head.out_features = lm_head.weight.shape[0]
-            model.lm_head = lm_head
-        pass
-
-        # Also patch all dtypes - BnB seems to not allocate the correct type?
-        # BnB default dtype seems to be float16!
-        correct_dtype = lm_head.weight.dtype
-
-        for name, module in model.named_modules():
-            if isinstance(module, (Bnb_Linear4bit, Peft_Linear4bit)):
-                weight = module.weight
-                quant_state = weight.quant_state
-
-                if type(quant_state) is list:
-                    # BnB seems to have float16 as default!
-                    module.weight.quant_state[2] = correct_dtype # Cast to correct dtype
-                else:
-                    # https://github.com/TimDettmers/bitsandbytes/pull/763/files
-                    quant_state.dtype = correct_dtype
-                pass
-            pass
-            # Downcast RoPE embedding to correct data type
-            # RoPE must be done in float32 for Gemma
-            # if (name.endswith("rotary_emb") or hasattr(module, "cos_cached")) \
-            #     and (module.cos_cached.dtype != correct_dtype):
-
-            #     module.cos_cached = module.cos_cached.to(correct_dtype)
-            #     module.sin_cached = module.sin_cached.to(correct_dtype)
-            #     pass
-            # pass
-        pass
+    def post_patch(model, tokenizer):
+        # Gemma does not downcast RoPE
+        model, tokenizer = patch_model_and_tokenizer(model, tokenizer, downcast_rope = False)
 
         # Add 1 to weight
         # return output * (1 + self.weight)
@@ -421,6 +382,6 @@ class FastGemmaModel(FastLlamaModel):
         for _ in range(3):
             gc.collect()
             torch.cuda.empty_cache()
-        return model
+        return model, tokenizer
     pass
 pass
