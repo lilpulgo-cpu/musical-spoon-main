@@ -45,6 +45,7 @@ if USE_MODELSCOPE:
 pass
 
 # https://github.com/huggingface/transformers/pull/26037 allows 4 bit loading!
+from unsloth_zoo.utils import Version, _get_dtype
 transformers_version = Version(transformers_version)
 SUPPORTS_FOURBIT = transformers_version >= Version("4.37")
 SUPPORTS_GEMMA   = transformers_version >= Version("4.38")
@@ -275,6 +276,10 @@ class FastLanguageModel(FastLlamaModel):
         pass
 
         if fast_inference:
+            from unsloth_zoo.vllm_utils import (
+                patch_vllm, 
+                vllm_dynamic_quant_supported,
+            )
             patch_vllm()
             if model_name.endswith("unsloth-bnb-4bit"):
                 if not vllm_dynamic_quant_supported(model_name, model_config):
