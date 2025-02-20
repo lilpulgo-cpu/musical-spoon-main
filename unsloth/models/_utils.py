@@ -226,7 +226,7 @@ pass
 
 # =============================================
 # torch.cuda.amp.custom_fwd is deprecated >= 2.4
-torch_version = torch.__version__
+torch_version = torch
 if Version(torch_version) < Version("2.4.0"):
     torch_amp_custom_fwd = torch.cuda.amp.custom_fwd
     torch_amp_custom_bwd = torch.cuda.amp.custom_bwd
@@ -482,7 +482,7 @@ def patch_regional_compilation():
     # Regional torch 2.5 Recompilation - weirdly very slow??
     if torch.nn.ModuleList.__name__ == "UnslothModuleList": return
     # Only works for torch 2.5
-    if Version(torch.__version__) < Version("2.5.0"): return
+    if Version(torch) < Version("2.5.0"): return
 
     old_module_list = torch.nn.ModuleList
     os.environ["UNSLOTH_PATCHED"] = "1"

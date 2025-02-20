@@ -1693,7 +1693,7 @@ class FastLlamaModel:
         statistics = \
            f"==((====))==  Unsloth {__version__}: Fast {model_patcher.__name__[4:-5]} patching. Transformers: {transformers_version}.\n"\
            f"   {chr(92)}{chr(92)}   /|    GPU: {gpu_stats.name}. Max memory: {max_memory} GB. Platform: {platform_system}.\n"\
-           f"O^O/ {chr(92)}_/ {chr(92)}    Torch: {torch.__version__}. CUDA: {gpu_stats.major}.{gpu_stats.minor}. CUDA Toolkit: {torch.version.cuda}. Triton: {triton_version}\n"\
+           f"O^O/ {chr(92)}_/ {chr(92)}    Torch: {torch}. CUDA: {gpu_stats.major}.{gpu_stats.minor}. CUDA Toolkit: {torch.version.cuda}. Triton: {triton_version}\n"\
            f"{chr(92)}        /    Bfloat16 = {str(SUPPORTS_BFLOAT16).upper()}. FA [Xformers = {xformers_version}. FA2 = {HAS_FLASH_ATTENTION}]\n"\
            f' "-____-"     Free Apache license: http://github.com/unslothai/unsloth'
         print(statistics)
@@ -2204,7 +2204,7 @@ class FastLlamaModel:
             if not SUPPORTS_LOFTQ:
                 import peft
                 raise RuntimeError(
-                    f"Unsloth: Your PEFT version of {peft.__version__} does not support LoftQ init.\n"\
+                    f"Unsloth: Your PEFT version of {peft} does not support LoftQ init.\n"\
                     "Please install PEFT 0.7.2 or higher.\n"\
                     "You can also install from source: `pip install git+https://github.com/huggingface/peft.git"
                 )
@@ -2233,7 +2233,7 @@ class FastLlamaModel:
                 # We manually check for PEFT
                 import peft
                 raise RuntimeError(
-                    f"Unsloth: Your PEFT version of {peft.__version__} does not support `use_rslora`.\n"\
+                    f"Unsloth: Your PEFT version of {peft} does not support `use_rslora`.\n"\
                     "Please install PEFT 0.7.2 or higher.\n"\
                     "You can also install from source: `pip install git+https://github.com/huggingface/peft.git"
                 )
