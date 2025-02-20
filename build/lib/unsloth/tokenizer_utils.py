@@ -71,7 +71,7 @@ def try_fix_tokenizer(tokenizer, prepend = True):
     tokenizer_string = converted_tokenizer.to_str()
 
     # Llama does _apple. Sometimes this is wrong!!
-    prepend_text = '{"type":"Prepend","prepend":" "},'
+    prepend_text = '{"type":"Prepend","prepend":"▁"},'
     if not prepend and prepend_text in tokenizer_string:
         tokenizer_string = tokenizer_string.replace(prepend_text, "", 1)
     pass
@@ -128,7 +128,7 @@ def convert_to_fast_tokenizer(
 ):
     is_fast = getattr(slow_tokenizer, "is_fast", False)
     if is_fast: return slow_tokenizer
-
+    
     try:
         tokenizer_name = slow_tokenizer.__class__.__name__
         lowered_tokenizer_name = tokenizer_name.lower()
@@ -261,7 +261,44 @@ def assert_same_tokenization(slow_tokenizer, fast_tokenizer):
     check_chat_template1 = True
     check_chat_template2 = True
     check_chat_template3 = True
+    
+    """
+    Weirdly Mistral tokenizers are actually correct??
+    Ie below will actually load mistral v1 and v3 incorrectly!
 
+    slow_chat_template = getattr(slow_tokenizer, "chat_template", None)
+    fast_chat_template = getattr(fast_tokenizer, "chat_template", None)
+    messages = [
+        {"role": "user", "content": " What is 2+2? "},
+        {"role": "assistant", "content": " It's 4. "},
+    ]
+    # Check the tokenizer's own chat template
+    if slow_chat_template is not None and fast_chat_template is not None:
+        check_chat_template1 = \
+            slow_tokenizer.apply_chat_template(messages) == \
+            fast_tokenizer.apply_chat_template(messages)
+    pass
+
+    # Check Mistral chat template without BOS / EOS
+    slow_tokenizer.chat_template = mistral_template
+    fast_tokenizer.chat_template = mistral_template
+    check_chat_template2 = \
+        slow_tokenizer.apply_chat_template(messages) == \
+        fast_tokenizer.apply_chat_template(messages)
+    pass
+
+    # Check Llama chat template without BOS / EOS
+    slow_tokenizer.chat_template = llama_template
+    fast_tokenizer.chat_template = llama_template
+    check_chat_template3 = \
+        slow_tokenizer.apply_chat_template(messages) == \
+        fast_tokenizer.apply_chat_template(messages)
+    pass
+
+    # Combine them all and revert chat templates
+    slow_tokenizer.chat_template = slow_chat_template
+    fast_tokenizer.chat_template = fast_chat_template
+    """
     check_chat_template = check_chat_template1 and check_chat_template2 and check_chat_template3
 
     # Try special tokens
@@ -359,7 +396,7 @@ def fix_sentencepiece_gguf(saved_location):
     from transformers.utils import sentencepiece_model_pb2
     import json
     from enum import IntEnum
-
+    
     class SentencePieceTokenTypes(IntEnum):
         NORMAL = 1
         UNKNOWN = 2
@@ -475,7 +512,7 @@ def _load_correct_tokenizer(
             fast_tokenizer.add_bos_token = slow_tokenizer.add_bos_token
         if hasattr(fast_tokenizer, "add_eos_token") and hasattr(slow_tokenizer, "add_eos_token"):
             fast_tokenizer.add_eos_token = slow_tokenizer.add_eos_token
-
+        
         # Confirm if slow and fast are equivalent!
         if assert_same_tokenization(slow_tokenizer, fast_tokenizer):
             return fast_tokenizer
@@ -725,7 +762,7 @@ def check_tokenizer(
                     f"Fix your tokenizer since it'll perform out of bounds memory accesses."
                 )
             pass
-
+            
             if IS_COLAB_ENVIRONMENT or IS_KAGGLE_ENVIRONMENT:
                 cache_dir = "huggingface_tokenizers_cache"
             else:
@@ -793,7 +830,7 @@ def fix_untrained_tokens(model, tokenizer, train_dataset, eps = 1e-16):
     indicator_untrained2 = torch.amax(lm_head_matrix,   axis = 1) <= eps
     # Combine both checks
     indicator_untrained = indicator_untrained1 & indicator_untrained2
-
+    
     where_untrained = torch.where(indicator_untrained)[0]
     n_untrained = where_untrained.shape[0]
     n_trained = embedding_matrix.shape[0] - n_untrained
@@ -803,7 +840,7 @@ def fix_untrained_tokens(model, tokenizer, train_dataset, eps = 1e-16):
     if len(where_untrained) == 0: return
 
     # Remove untrained indices where it's longer
-
+    
     where_untrained_set = frozenset(where_untrained)
     actual_bad_tokens = tokenizer.convert_ids_to_tokens(where_untrained)
     # Remove None items in actual_bad_tokens
@@ -928,6 +965,12 @@ def mean_of_trained_tokens(model, eps = 1e-16):
     where_untrained = torch.where(indicator_untrained)[0]
     n_untrained = where_untrained.shape[0]
     n_trained = embedding_matrix.shape[0] - n_untrained
+    # if n_untrained != 0:
+    #     print(
+    #         f"Unsloth: Not an error, but your model has {n_untrained} untrained tokens.\n"\
+    #         "We shall set them to the mean of the other trained tokens."
+    #     )
+    # pass
 
     # Get sum of all items
     sum_embedding = torch.sum(embedding_matrix, dtype = torch.float32, axis = 0)
@@ -1022,7 +1065,7 @@ def add_new_tokens(
         internal_model = internal_model.model
     pass
     internal_model._need_to_train_embeddings = True
-
+    
     return
 pass
 
@@ -1056,8 +1099,7 @@ def patch_sft_trainer_tokenizer():
         Patches the trainer with changes
     """
     for function_name, replacer in (
-        # Removed problematic line
-        # ("_prepare_non_packed_dataloader", "def tokenize(element):",),
+        ("_prepare_non_packed_dataloader", "def tokenize(element):",),
         # ("_prepare_packed_dataloader", "if dataset_text_field is not None",),
     ):
         function = getsource(eval(f"trl.trainer.sft_trainer.SFTTrainer.{function_name}"))
@@ -1077,10 +1119,10 @@ def patch_sft_trainer_tokenizer():
         check_text = check_text.split("\n")
         check_text = "\n".join(" "*where + x for x in check_text)
 
-        # function = function.replace(replacer, check_text + replacer) # commented out as replacer is not used after commenting out the problematic line
-        # exec(function, globals()) # commented out as function is not used after commenting out the problematic line
+        function = function.replace(replacer, check_text + replacer)
+        exec(function, globals())
 
-        # exec(f"trl.trainer.sft_trainer.SFTTrainer.{function_name} = {function_name}", globals()) # commented out as function_name is not used after commenting out the problematic line
+        exec(f"trl.trainer.sft_trainer.SFTTrainer.{function_name} = {function_name}", globals())
     pass
 
     # Patch train with fix_untrained_tokens
