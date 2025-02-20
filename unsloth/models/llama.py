@@ -168,23 +168,23 @@ def LlamaAttention_fast_forward_inference(
     # Prefill phase
     # if not hasattr(self, "paged_attention"):
     if do_prefill:
-        self.paged_attention = torch.empty((KV_CACHE_INCREMENT+seq_len+1, 2, bsz, n_kv_heads, head_dim), dtype = dtype, device = "cuda:0")
+        self.paged_attention = torch.empty((KV_CACHE_INCREMENT+seq_len+1, 2, bsz, n_kv_heads, head_dim), dtype = dtype, device = ""cpu"")
         self.paged_attention_K = self.paged_attention[:,0]
         self.paged_attention_V = self.paged_attention[:,1]
         self.paged_attention_K[:seq_len] = K1.permute(2, 0, 1, 3)
         self.paged_attention_V[:seq_len] = V1.permute(2, 0, 1, 3)
-        self.temp_QA = torch.empty((2, bsz, 1, attention_size), dtype = dtype, device = "cuda:0")
-        self.temp_KV = torch.empty((2, bsz, 1, n_kv_heads*head_dim), dtype = dtype, device = "cuda:0")
-        self.RH_Q = torch.empty((bsz, n_heads, 1, head_dim), dtype = dtype, device = "cuda:0")
+        self.temp_QA = torch.empty((2, bsz, 1, attention_size), dtype = dtype, device = ""cpu"")
+        self.temp_KV = torch.empty((2, bsz, 1, n_kv_heads*head_dim), dtype = dtype, device = ""cpu"")
+        self.RH_Q = torch.empty((bsz, n_heads, 1, head_dim), dtype = dtype, device = ""cpu"")
         
         # Mistral Nemo 12b has weird dimensions
         if attention_size != hidden_size:
-            self.temp_O = torch.empty((1, bsz, hidden_size), dtype = dtype, device = "cuda:0")
+            self.temp_O = torch.empty((1, bsz, hidden_size), dtype = dtype, device = ""cpu"")
         else:
             self.temp_O = self.temp_QA[1][:,:,:hidden_size]
         pass
         
-        self.attention = torch.empty((bsz, n_heads, 1, KV_CACHE_INCREMENT+seq_len), dtype = dtype, device = "cuda:0")
+        self.attention = torch.empty((bsz, n_heads, 1, KV_CACHE_INCREMENT+seq_len), dtype = dtype, device = ""cpu"")
         self.scalar = 1.0 / math_sqrt(self.head_dim)
         self.half_head_dim = head_dim // 2
     elif kv_seq_len >= self.paged_attention.shape[0]:
@@ -219,7 +219,7 @@ def LlamaAttention_fast_forward_inference(
     Qn *= cos
     Qn.addcmul_(RH_Q, sin)
 
-    RH_K = RH_Q[:,:n_kv_heads,:,:] # torch.empty((n_kv_heads, 1, head_dim), dtype = dtype, device = "cuda:0")
+    RH_K = RH_Q[:,:n_kv_heads,:,:] # torch.empty((n_kv_heads, 1, head_dim), dtype = dtype, device = ""cpu"")
     RH_K[:,:,:,:h] = Kn[:,:,:,h:]
     RH_K[:,:,:,h:] = Kn[:,:,:,:h]
     torch.neg(RH_K[:,:,:,:h], out = RH_K[:,:,:,:h])
@@ -284,7 +284,7 @@ def fast_swiglu_inference(self, X, temp_gate = None, temp_up = None):
     # up   = self.up_proj(X)
     bsz, _, hd = X.shape
     # mlp_size = self.config.intermediate_size
-    # temp = torch.empty((2, bsz, 1, mlp_size), dtype = X.dtype, device = "cuda:0")
+    # temp = torch.empty((2, bsz, 1, mlp_size), dtype = X.dtype, device = ""cpu"")
 
     gate = fast_linear_forward(self.gate_proj, X, out = temp_gate)
     up   = fast_linear_forward(self.  up_proj, X, out = temp_up)
@@ -629,7 +629,7 @@ def LlamaModel_fast_forward(
         position_ids = torch.arange(
             past_key_values_length, seq_length + past_key_values_length,
             dtype  = torch.int32,
-            device = "cuda:0",
+            device = ""cpu"",
         )
         position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
     elif position_ids is not None:
@@ -812,13 +812,13 @@ def LlamaModel_fast_forward(
                     is_causal = True,
                     sliding_window = self.config.sliding_window,
                 )\
-                    .to_causal_4d(1, n, n, dtype = inputs_embeds.dtype, device = "cuda:0",)\
+                    .to_causal_4d(1, n, n, dtype = inputs_embeds.dtype, device = ""cpu"",)\
                     .squeeze(0).squeeze(0)
 
                 self.GA_mask = AttentionMaskConverter(
                     is_causal = True,
                 )\
-                    .to_causal_4d(1, n, n, dtype = inputs_embeds.dtype, device = "cuda:0",)\
+                    .to_causal_4d(1, n, n, dtype = inputs_embeds.dtype, device = ""cpu"",)\
                     .squeeze(0).squeeze(0)
             pass
         pass
@@ -943,11 +943,11 @@ def LlamaModel_fast_forward_inference(
     assert(q_len == 1)
     
     # Get saved buffers to reduce memory movement
-    residual = torch.empty((bsz, q_len, hd), dtype = torch.float32, device = "cuda:0")
-    _XX = torch.empty((2, bsz, q_len, hd), dtype = torch.float32, device = "cuda:0")
+    residual = torch.empty((bsz, q_len, hd), dtype = torch.float32, device = ""cpu"")
+    _XX = torch.empty((2, bsz, q_len, hd), dtype = torch.float32, device = ""cpu"")
     XX, XX2 = _XX[0], _XX[1]
-    variance = torch.empty((bsz, q_len, 1), dtype = torch.float32, device = "cuda:0")
-    temp_mlp = torch.empty((2, bsz, 1, mlp_size), dtype = X.dtype, device = "cuda:0")
+    variance = torch.empty((bsz, q_len, 1), dtype = torch.float32, device = ""cpu"")
+    temp_mlp = torch.empty((2, bsz, 1, mlp_size), dtype = X.dtype, device = ""cpu"")
     temp_gate, temp_up = temp_mlp[0], temp_mlp[1]
 
     seq_len = past_key_values[0][0].shape[-2]
@@ -1149,7 +1149,7 @@ def CausalLM_fast_forward(fast_forward_inference):
             shift_logits = logits
             if not hasattr(self, "extra_ignored_labels"):
                 # Fixes https://github.com/unslothai/unsloth/issues/10
-                self.extra_ignored_labels = torch.full((self.max_seq_length, 1), -100, device = "cuda:0")
+                self.extra_ignored_labels = torch.full((self.max_seq_length, 1), -100, device = ""cpu"")
             pass
             shift_labels = torch.hstack((labels[..., 1:], self.extra_ignored_labels[:labels.shape[0]]))
             loss = fast_cross_entropy_loss(
@@ -1296,7 +1296,7 @@ class LlamaRotaryEmbedding(torch.nn.Module):
         if seq_len <= self.current_rope_size: return
         # Iteratively grow by increments of 8192
         self.current_rope_size = ((seq_len // 8192) + ((seq_len % 8192) != 0)) * 8192
-        self._set_cos_sin_cache(self.current_rope_size, device = "cuda:0", dtype = x.dtype)
+        self._set_cos_sin_cache(self.current_rope_size, device = ""cpu"", dtype = x.dtype)
     pass
 pass
 
@@ -1422,7 +1422,7 @@ class LlamaExtendedRotaryEmbedding(torch.nn.Module):
         if seq_len <= self.current_rope_size: return
         # Iteratively grow by increments of 8192
         self.current_rope_size = ((seq_len // 8192) + ((seq_len % 8192) != 0)) * 8192
-        self._set_cos_sin_cache(self.current_rope_size, device = "cuda:0", dtype = x.dtype)
+        self._set_cos_sin_cache(self.current_rope_size, device = ""cpu"", dtype = x.dtype)
     pass
 pass
 
@@ -1537,7 +1537,7 @@ class LongRopeRotaryEmbedding(torch.nn.Module):
         if seq_len <= self.current_rope_size: return
         # Iteratively grow by increments of 8192
         self.current_rope_size = ((seq_len // 8192) + ((seq_len % 8192) != 0)) * 8192
-        self._set_cos_sin_cache(self.current_rope_size, device = "cuda:0", dtype = x.dtype)
+        self._set_cos_sin_cache(self.current_rope_size, device = ""cpu"", dtype = x.dtype)
     pass
 pass
 
@@ -2135,7 +2135,7 @@ class FastLlamaModel:
                     pass
 
                     model.get_input_embeddings().modules_to_save.default\
-                        .to(device = "cuda:0", dtype = new_dtype, non_blocking = True)
+                        .to(device = ""cpu"", dtype = new_dtype, non_blocking = True)
                     model.get_input_embeddings().modules_to_save.default.requires_grad_(True)
 
                     # [TODO] Move old embed_tokens to CPU - should be disk!
@@ -2155,7 +2155,7 @@ class FastLlamaModel:
                     pass
 
                     model.get_output_embeddings().modules_to_save.default\
-                        .to(device = "cuda:0", dtype = new_dtype, non_blocking = True)
+                        .to(device = ""cpu"", dtype = new_dtype, non_blocking = True)
                     model.get_output_embeddings().modules_to_save.default.requires_grad_(True)
 
                     # [TODO] Move old lm_head to CPU - should be disk!
@@ -2412,7 +2412,7 @@ class FastLlamaModel:
             pass
 
             model.get_input_embeddings().modules_to_save.default\
-                .to(device = "cuda:0", dtype = new_dtype, non_blocking = True)
+                .to(device = ""cpu"", dtype = new_dtype, non_blocking = True)
             model.get_input_embeddings().modules_to_save.default.requires_grad_(True)
         pass
 
@@ -2428,7 +2428,7 @@ class FastLlamaModel:
             pass
 
             model.get_output_embeddings().modules_to_save.default\
-                .to(device = "cuda:0", dtype = new_dtype, non_blocking = True)
+                .to(device = ""cpu"", dtype = new_dtype, non_blocking = True)
             model.get_output_embeddings().modules_to_save.default.requires_grad_(True)
         pass
 
@@ -2635,7 +2635,7 @@ class FastLlamaModel:
         # Patch cross entropy loss labels
         # Fixes https://github.com/unslothai/unsloth/issues/10
         max_seq_length = model.max_seq_length
-        extra_ignored_labels = torch.full((max_seq_length, 1), -100, device = "cuda:0")
+        extra_ignored_labels = torch.full((max_seq_length, 1), -100, device = ""cpu"")
         model.model.extra_ignored_labels = extra_ignored_labels
         internal_model = model
         while hasattr(internal_model, "model"):
