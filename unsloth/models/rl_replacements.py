@@ -24,7 +24,6 @@ import re
 import torch
 import inspect
 from collections import defaultdict
-from unsloth_zoo.rl_replacements import RL_REPLACEMENTS
 RL_EXTRA_ARGS      = defaultdict(list)
 RL_FUNCTIONS       = defaultdict(list)
 RL_PRE_ITEMS       = defaultdict(list)

@@ -27,11 +27,6 @@ from ..kernels import (
 from ._utils import __version__
 from peft import LoraConfig, TaskType, get_peft_model
 from transformers import set_seed as transformers_set_seed
-from unsloth_zoo.peft_utils import (
-    get_peft_regex,
-    SKIP_QUANTIZATION_MODULES,
-    requires_grad_for_gradient_checkpointing,
-)
 from triton import __version__ as triton_version
 
 __all__ = [

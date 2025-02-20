@@ -2458,7 +2458,6 @@ class FastLlamaModel:
 
             # Also saving and loading LoRA
             from functools import partial
-            from unsloth_zoo.vllm_utils import save_lora, load_lora
             model.save_lora = partial(save_lora, model)
             model.load_lora = partial(load_lora, model)
         pass
